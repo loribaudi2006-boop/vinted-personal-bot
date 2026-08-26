@@ -1,0 +1,15 @@
+{
+  "name": "vinted-personal-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bot Telegram personale multi-utente per cercare/monitorare console, giochi e controller su Vinted",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/run_loop.js",
+    "test-search": "node src/vinted_search.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "puppeteer-core": "^23.9.0"
+  }
+}

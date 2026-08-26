@@ -1,0 +1,38 @@
+name: Vinted Personal Bot
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: vinted-personal-bot
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Installa dipendenze
+        run: npm install
+
+      - name: Individua Chrome
+        id: chrome
+        run: echo "path=$(which google-chrome-stable)" >> "$GITHUB_OUTPUT"
+
+      - name: Avvia bot (polling messaggi + avvisi periodici)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+          CHROME_PATH: ${{ steps.chrome.outputs.path }}
+          DURATION_SECONDS: 21000
+        run: bash run_loop.sh

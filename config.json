@@ -1,0 +1,30 @@
+{
+  "searchLoopIntervalSec": 90,
+  "pollUpdatesIntervalSec": 3,
+  "maxResultsPerSearch": 8,
+  "chromePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "referencePrices": {
+    "ps5": 350,
+    "ps5 slim": 380,
+    "ps4": 130,
+    "ps4 pro": 160,
+    "xbox series x": 350,
+    "xbox series s": 200,
+    "xbox one": 100,
+    "nintendo switch": 180,
+    "nintendo switch oled": 250,
+    "nintendo switch 2": 400
+  },
+  "fakeListingHeuristics": {
+    "maxDiscountRatioBeforeSuspicious": 0.55,
+    "suspiciousPhrases": [
+      "prima che se ne accorgano",
+      "vendo urgente per motivi",
+      "scrivetemi fuori vinted",
+      "pagamento fuori piattaforma",
+      "contattami su whatsapp",
+      "no rimborsi",
+      "solo bonifico diretto"
+    ]
+  }
+}
