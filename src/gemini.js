@@ -54,9 +54,9 @@ Messaggio dell'utente (lingua naturale, di solito italiano): "${message}"
 Capisci ESATTAMENTE cosa vuole e rispondi SOLO con questo JSON:
 {
   "action": "search" | "create_alert" | "chat" | "clarify",
-  "searchQuery": "il testo migliore da digitare nella barra di ricerca di Vinted per trovare proprio quel prodotto (solo parole chiave essenziali, marca+modello se citati; niente saluti, verbi, prezzi, punteggiatura). Es: 'mi trovi una playstation 5 slim?' -> 'playstation 5 slim'",
-  "productDescription": "UNA frase chiara che descrive l'oggetto esatto voluto, come istruzione per un secondo filtro. Chiarisci se è il DISPOSITIVO, un ACCESSORIO o un GIOCO. Es: 'la console PlayStation 5 (il dispositivo), non giochi né accessori'; 'un videogioco per Nintendo Switch, titolo Zelda'; 'una giacca da uomo North Face'",
-  "excludeTypes": ["tipi di annuncio da SCARTARE perché non sono ciò che l'utente vuole. Es. per una console: 'videogiochi','controller','cavi','cover','supporti','solo scatola'. Vuoto [] se l'utente non è restrittivo"],
+  "searchQuery": "il testo migliore da digitare nella barra di ricerca di Vinted (solo parole chiave essenziali; niente saluti, verbi, prezzi, punteggiatura). Mantieni il livello di dettaglio dell'utente: se dice 'ps4' -> 'ps4' (NON aggiungere 'slim' o 'pro'), se dice 'ps4 slim' -> 'ps4 slim'",
+  "productDescription": "UNA frase che descrive il TIPO di oggetto voluto, come istruzione per un filtro. Chiarisci se è il DISPOSITIVO, un ACCESSORIO o un GIOCO, ma NON aggiungere vincoli di modello/variante che l'utente non ha dato. Es: utente 'ps4' -> 'una console PlayStation 4, qualsiasi modello (Fat, Slim o Pro)'; utente 'ps4 slim' -> 'una console PlayStation 4 Slim'; 'un videogioco per Nintendo Switch titolo Zelda'; 'una giacca da uomo North Face'",
+  "excludeTypes": ["tipi di annuncio da SCARTARE perché di categoria diversa da ciò che l'utente vuole. Es. per una console: 'videogiochi','controller','cavi','cover','solo scatola'. Vuoto [] se l'utente non è restrittivo. NON mettere qui le varianti di modello dello stesso prodotto"],
   "maxPrice": numero o null (solo se lo dice: 'sotto 200€','max 50'),
   "minPrice": numero o null,
   "condition": "nuovo" | "come nuovo" | "buone condizioni" | null (solo se citato),
@@ -70,9 +70,10 @@ Regole:
 - "create_alert" SOLO se chiede di essere avvisato in futuro ('avvisami quando...','notificami se...','tienimi d'occhio').
 - "search" se vuole vedere subito degli annunci (anche solo 'iphone 15' o 'console').
 - "chat" per saluti, ringraziamenti, domande sul funzionamento del bot.
-- "clarify" SOLO se la richiesta è davvero ambigua e cercare a caso darebbe risultati sbagliati (es. 'nintendo' senza dire se console/giochi/accessori; 'fifa' senza dire per quale console). Se puoi ragionevolmente indovinare, NON usare clarify.
+- "clarify" va usato RARAMENTE, solo se davvero non si capisce che categoria di oggetto voglia e cercare darebbe risultati a caso (es. solo 'nintendo', solo 'fifa'). Se l'utente nomina un prodotto riconoscibile ('ps4', 'iphone 12', 'console', 'giacca nike') NON chiedere: cerca.
+- Un prodotto nominato in modo generico NON è ambiguo: 'ps4' = tutte le PS4 di qualsiasi modello. Non chiedere il modello.
 - Parole generiche di categoria = loro significato più naturale: 'console' = i DISPOSITIVI (PlayStation, Xbox, Nintendo Switch...), NON i videogiochi; 'giochi'/'videogiochi' = i titoli; 'controller' = i joypad.
-- Cura molto "excludeTypes" e "productDescription": sono la chiave per non restituire annunci sbagliati.`;
+- "excludeTypes" serve a togliere le categorie sbagliate (giochi/accessori quando si vuole la console), NON i modelli diversi dello stesso prodotto.`;
 
   return callGemini(prompt);
 }
@@ -93,11 +94,11 @@ ${userMessage ? `Messaggio originale dell'utente: "${userMessage}"` : ""}
 Annunci trovati (solo il titolo):
 ${list}
 
-Per ogni annuncio decidi se è PROPRIO il prodotto che l'utente vuole.
-- Tieni SOLO gli annunci chiaramente corrispondenti.
-- SCARTA: prodotti diversi; accessori/pertinenze quando l'utente vuole il prodotto principale (e viceversa); lotti/bundle che sono soprattutto altra roba; annunci di sole scatole/manuali; titoli troppo vaghi per esserne sicuri.
-- Nel dubbio SCARTA.
-- Un annuncio in un'altra lingua ma chiaramente lo stesso prodotto va tenuto.
+Per ogni annuncio decidi se appartiene al TIPO di prodotto che l'utente vuole.
+- TIENI tutti gli annunci che sono quel tipo di prodotto, anche se di modello/variante/colore/taglio diversi da un eventuale esempio (es. si cerca "PS4": tieni PS4 Fat, Slim, Pro, bundle con console PS4 inclusa).
+- SCARTA solo: prodotti di categoria diversa (un gioco/accessorio quando si vuole la console, o viceversa); prodotti completamente diversi; lotti che NON includono il prodotto voluto; annunci di sole scatole vuote o soli manuali.
+- Nel dubbio, se potrebbe essere quel tipo di prodotto, TIENILO.
+- Annuncio in un'altra lingua ma stesso tipo di prodotto: TIENILO.
 
 Rispondi SOLO con JSON: { "keep": [numeri 1-based degli annunci da tenere] }`;
 

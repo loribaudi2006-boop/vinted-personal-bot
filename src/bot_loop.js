@@ -84,9 +84,13 @@ async function handleSearchReply(chatId, intent) {
   await sendMessage(chatId, `🔎 Cerco: <b>${escapeHtml(label)}</b>…`);
   let items;
   try {
-    // Prendiamo parecchi risultati extra: il filtro severo di Gemini che segue ne scarta
-    // molti (di proposito), quindi serve un margine ampio per avere abbastanza annunci giusti.
-    items = await searchVinted(intent.searchQuery, { maxItems: (desiredCount || 8) + 12 });
+    // Il prezzo lo filtra direttamente Vinted (price_to/price_from). Prendiamo un campione
+    // ampio: il filtro di pertinenza che segue ne scarta un po', serve margine.
+    items = await searchVinted(intent.searchQuery, {
+      maxItems: (desiredCount || 8) + 30,
+      maxPrice,
+      minPrice,
+    });
   } catch (e) {
     await sendMessage(chatId, "⚠️ Errore durante la ricerca su Vinted, riprova tra poco.");
     return;
@@ -94,9 +98,10 @@ async function handleSearchReply(chatId, intent) {
 
   const rawCount = items.length;
 
-  // Filtro di pertinenza SEVERO PRIMA del filtro prezzo: se si filtrasse per prezzo prima,
-  // un budget stretto rischierebbe di lasciare solo accessori/oggetti a caso che restano
-  // economici. Se Gemini non risponde si prosegue con i risultati già puliti localmente.
+  // Filtro di pertinenza: tiene gli annunci che sono ragionevolmente il TIPO di prodotto
+  // richiesto (senza pretendere il modello esatto), scarta solo ciò che è chiaramente altro
+  // (un gioco al posto della console, un accessorio, un prodotto diverso). Se Gemini non
+  // risponde si prosegue con i risultati già ripuliti localmente.
   if (items.length) {
     try {
       const keep = await selectMatchingItems(
@@ -107,9 +112,12 @@ async function handleSearchReply(chatId, intent) {
         },
         items
       );
-      items = items.filter((_, i) => keep.has(i + 1));
+      const filtered = items.filter((_, i) => keep.has(i + 1));
+      // Se il filtro azzera tutto ma Vinted aveva restituito parecchi annunci, è più
+      // probabile un filtro troppo severo che un vero "niente di pertinente": teniamo i grezzi.
+      items = filtered.length ? filtered : (rawCount >= 8 ? items : filtered);
     } catch {
-      // Gemini non disponibile: si prosegue con il filtro locale già applicato da vinted_search.js
+      // Gemini non disponibile: si prosegue con il filtro locale già applicato
     }
   }
 
@@ -117,27 +125,19 @@ async function handleSearchReply(chatId, intent) {
     await sendMessage(
       chatId,
       rawCount
-        ? "Ho trovato degli annunci ma nessuno era davvero quello che cerchi (erano giochi, accessori o altri prodotti). Prova a essere più specifico — es. \"console: ps4 slim\"."
-        : "Nessun risultato al momento. Riprova più tardi o cambia le parole di ricerca."
+        ? `Ho trovato annunci ma nessuno sembrava davvero ciò che cerchi${maxPrice ? ` entro ${maxPrice}€` : ""}. Prova a cambiare le parole di ricerca.`
+        : `Nessun annuncio${maxPrice ? ` sotto ${maxPrice}€` : ""} al momento. Riprova più tardi o allarga la ricerca.`
     );
     return;
   }
 
-  if (minPrice) {
-    items = items.filter((it) => it.price == null || it.price >= minPrice);
-  }
-  if (maxPrice) {
-    const withinBudget = items.filter((it) => it.price == null || it.price <= maxPrice);
-    if (!withinBudget.length) {
-      const cheapest = items.reduce((min, it) => (it.price != null && (min == null || it.price < min) ? it.price : min), null);
-      await sendMessage(
-        chatId,
-        `Ho trovato annunci pertinenti, ma nessuno sotto i ${maxPrice}€${cheapest != null ? ` (il più economico al momento è ${cheapest}€)` : ""}.`
-      );
-      return;
-    }
-    items = withinBudget;
-  }
+  // Sicurezza: Vinted a volte include comunque qualche annuncio fuori fascia.
+  if (minPrice) items = items.filter((it) => it.price == null || it.price >= minPrice);
+  if (maxPrice) items = items.filter((it) => it.price == null || it.price <= maxPrice);
+
+  // Prima i più economici quando c'è un tetto di prezzo (è quasi sempre ciò che interessa),
+  // altrimenti l'ordine di Vinted (più recenti).
+  if (maxPrice) items.sort((a, b) => (a.price ?? 1e9) - (b.price ?? 1e9));
 
   items = items.slice(0, desiredCount || 8);
 

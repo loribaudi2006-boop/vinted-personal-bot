@@ -65,15 +65,20 @@ function isNoisyTitle(title, exclusionList) {
 /**
  * Cerca su Vinted (pagina pubblica dei risultati, come farebbe un utente normale).
  * @param {string} query testo di ricerca libero
- * @param {object} opts { maxItems, filterNoise }
+ * @param {object} opts { maxItems, filterNoise, maxPrice, minPrice }
+ *   maxPrice/minPrice vengono passati direttamente a Vinted (price_to/price_from), così
+ *   e' Vinted a restituire solo gli annunci nella fascia di prezzo — molto piu' affidabile
+ *   che filtrare a posteriori una manciata di risultati.
  */
 async function searchVinted(query, opts = {}) {
   const { maxResultsPerSearch } = loadConfig();
   const maxItems = opts.maxItems || maxResultsPerSearch;
   const filterNoise = opts.filterNoise !== false;
-  const url = `https://www.vinted.it/catalog?search_text=${encodeURIComponent(
-    query
-  )}&order=newest_first`;
+
+  const params = new URLSearchParams({ search_text: query, order: "newest_first" });
+  if (opts.maxPrice) params.set("price_to", String(opts.maxPrice));
+  if (opts.minPrice) params.set("price_from", String(opts.minPrice));
+  const url = `https://www.vinted.it/catalog?${params.toString()}`;
 
   const browser = await getBrowser();
   const page = await browser.newPage();
@@ -88,6 +93,16 @@ async function searchVinted(query, opts = {}) {
     await page
       .waitForSelector('[data-testid^="grid-item"], .feed-grid__item', { timeout: 8000 })
       .catch(() => {});
+
+    // Vinted carica altri annunci man mano che si scorre: qualche scroll per avere un
+    // campione ampio (~40-70 annunci) invece dei soli ~20 iniziali, così la ricerca è
+    // davvero approfondita e il filtro di pertinenza ha abbastanza materiale.
+    await page.evaluate(async () => {
+      for (let i = 0; i < 4; i++) {
+        window.scrollTo(0, document.body.scrollHeight);
+        await new Promise((r) => setTimeout(r, 700));
+      }
+    }).catch(() => {});
 
     const items = await page.evaluate(() => {
       const cards = Array.from(

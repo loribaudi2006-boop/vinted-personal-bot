@@ -8,6 +8,11 @@ const { loadConfig } = require("./config_loader");
 // non apriamo pagine Amazon inutilmente (una "giacca con zip rotta" non c'entra).
 const REPAIRABLE_RE = /\b(ps[2345]|playstation|dualsense|dualshock|xbox|series\s*[sx]|nintendo|switch|joy-?con|wii|controller|joystick|console|3ds|psp|steam\s*deck|pc|notebook|monitor|drone|gopro|fotocamera|reflex|obiettivo|iphone|ipad|airpods|kindle|tablet|smartwatch)\b/i;
 
+// Solo se il testo lascia intendere un difetto o un motivo di vendita rilevante vale la
+// pena spendere una chiamata Gemini per riassumerlo — così le ricerche normali (annunci
+// senza problemi) restano veloci.
+const DEFECT_RE = /(rott|guast|difett|non\s+funziona|non\s+si\s+accende|da\s+riparar|per\s+ricambi|per\s+pezzi|not\s+working|for\s+parts|drift|malfunzion|danneggiat|schermo.{0,15}crepat|crepat|graffi|da\s+sistemare|problema)/i;
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 }
@@ -39,6 +44,8 @@ async function enrichAndFormatItem(item, prefix = "") {
         }`;
       }
       try {
+        const hintsDefect = DEFECT_RE.test(item.title || "") || DEFECT_RE.test(enrichment.fullText || "");
+        if (!hintsDefect) throw new Error("skip-summary"); // annuncio pulito: niente chiamata Gemini
         const summary = await summarizeListing({ title: item.title, price: item.price, text: enrichment.fullText });
         if (summary.problems) problemsLine = `\n⚠️ Problemi: ${escapeHtml(summary.problems)}`;
         if (summary.reasonForSale) reasonLine = `\n💬 Motivo vendita: ${escapeHtml(summary.reasonForSale)}`;
