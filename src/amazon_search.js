@@ -30,8 +30,12 @@ async function dismissConsent(page) {
   return false;
 }
 
+// Amazon spesso blocca del tutto gli IP dei runner GitHub (pagina "Ci dispiace…").
+// Dopo il primo blocco in questo processo smettiamo di riprovare.
+let amazonBlockedThisProcess = false;
+
 async function readResults(page) {
-  await page.waitForSelector('[data-component-type="s-search-result"]', { timeout: 12000 }).catch(() => {});
+  await page.waitForSelector('[data-component-type="s-search-result"]', { timeout: 6000 }).catch(() => {});
   return page.evaluate(() => {
     const items = Array.from(document.querySelectorAll('[data-component-type="s-search-result"]'));
     return items.map((el) => {
@@ -57,6 +61,7 @@ function amazonSearchUrl(query) {
 }
 
 async function searchAmazonPart(query) {
+  if (amazonBlockedThisProcess) return null;
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
@@ -72,12 +77,27 @@ async function searchAmazonPart(query) {
     } catch {}
 
     const url = "https://www.amazon.it/s?k=" + encodeURIComponent(query) + "&language=it_IT";
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
 
     let results = await readResults(page);
-    if (!results.length && (await dismissConsent(page))) {
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
-      results = await readResults(page);
+    if (!results.length) {
+      const snippet = await page.evaluate(() =>
+        ((document.title || "") + " " + (document.body ? document.body.innerText.slice(0, 150) : "")).toLowerCase()
+      );
+      const softBlock =
+        snippet.includes("ci dispiace") ||
+        snippet.includes("si è verificato un errore") ||
+        snippet.includes("elaborare la richiesta") ||
+        snippet.includes("inserisci i caratteri") ||
+        snippet.includes("robot check");
+      if (softBlock) {
+        amazonBlockedThisProcess = true;
+        return null;
+      }
+      if (await dismissConsent(page)) {
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+        results = await readResults(page);
+      }
     }
     if (!results.length) return null;
 
