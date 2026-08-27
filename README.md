@@ -124,6 +124,14 @@ Dopo un paio di minuti, controlla la tab **Actions** del repo su GitHub: dovrest
 
 Da qui in poi il bot gira da solo ogni 6 ore, 24/7, senza bisogno del PC acceso — esattamente come il Vinted Deal Finder.
 
+## Pezzi di ricambio automatici
+
+Quando il bot trova un annuncio di un dispositivo elettronico (console, controller, PC, fotocamera…) in cui il venditore **dichiara un difetto riparabile**, cerca da solo i pezzi di ricambio necessari su **Amazon.it** e li aggiunge in fondo al messaggio, con titolo, prezzo reale, link diretto e totale stimato. Vale sia per le ricerche su richiesta sia per gli avvisi automatici. Per oggetti non elettronici o difetti solo estetici non fa nulla. Si disattiva mettendo `"repairPartsLookup": false` in `config.json` (`"maxRepairParts"` regola quanti pezzi cercare, default 3).
+
+## Watchdog (auto-riavvio + avviso su Telegram)
+
+`watchdog.yml` è un secondo workflow che gira ogni ~15 minuti (job minuscolo, senza Chrome). Controlla che `bot.yml` sia attivo: se GitHub non ha avviato il job programmato e il bot è fermo da più di 20 minuti, **manda un messaggio su Telegram che spiega il problema e riavvia il bot da solo**. Se due job di fila falliscono, avvisa soltanto (niente riavvio automatico, per non entrare in loop). Richiede il secret `TELEGRAM_CHAT_ID` oltre a `TELEGRAM_BOT_TOKEN`.
+
 ## Limiti onesti da sapere
 - **Non è "istantaneo" H24**: dentro ogni job di 6 ore il bot ascolta i messaggi ogni ~3 secondi (quasi in tempo reale), ma tra un job e l'altro (avvio del job successivo) può esserci un piccolo buco di qualche minuto ogni 6 ore — stesso compromesso già accettato per il Vinted Deal Finder.
 - **Rilevamento "fake"**: è un aiuto, non una garanzia — combina regole euristiche (sconto troppo aggressivo, frasi sospette) e il giudizio di Gemini sul testo dell'annuncio, ma nessun sistema automatico è infallibile contro chi pubblica annunci in mala fede.
