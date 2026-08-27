@@ -78,6 +78,7 @@ async function searchVinted(query, opts = {}) {
   const params = new URLSearchParams({ search_text: query, order: "newest_first" });
   if (opts.maxPrice) params.set("price_to", String(opts.maxPrice));
   if (opts.minPrice) params.set("price_from", String(opts.minPrice));
+  if (opts.page && opts.page > 1) params.set("page", String(opts.page));
   const url = `https://www.vinted.it/catalog?${params.toString()}`;
 
   const browser = await getBrowser();

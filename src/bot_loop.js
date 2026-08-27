@@ -83,48 +83,66 @@ async function handleSearchReply(chatId, intent) {
   const minPrice = intent.minPrice || null;
 
   await sendMessage(chatId, `🔎 Cerco: <b>${escapeHtml(label)}</b>…`);
-  let items;
-  try {
-    // Il prezzo lo filtra direttamente Vinted (price_to/price_from). Prendiamo un campione
-    // ampio: il filtro di pertinenza che segue ne scarta un po', serve margine.
-    items = await searchVinted(intent.searchQuery, {
-      maxItems: showCount + 60,
-      maxPrice,
-      minPrice,
-    });
-  } catch (e) {
+
+  const ctx = {
+    productDescription: intent.productDescription || intent.searchQuery,
+    excludeTypes: intent.excludeTypes || [],
+    userMessage: intent.userMessage,
+  };
+
+  // Cerchiamo pagina per pagina su Vinted finché non abbiamo abbastanza annunci DAVVERO
+  // pertinenti (non solo "trovati"). Ci fermiamo quando: ne abbiamo a sufficienza, Vinted
+  // non ha più risultati, o abbiamo guardato MAX_PAGES pagine. Il filtro di pertinenza
+  // (severo, a blocchi) gira su ogni pagina, così ogni annuncio mostrato è correlato.
+  const MAX_PAGES = 4;
+  const seenIds = new Set();
+  let kept = [];
+  let totalRaw = 0;
+  let searchFailed = false;
+
+  for (let pageNum = 1; pageNum <= MAX_PAGES && kept.length < showCount; pageNum++) {
+    if (pageNum === 2) {
+      await sendMessage(chatId, "🔍 Pochi risultati in prima pagina, cerco più a fondo…");
+    }
+
+    let raw;
+    try {
+      raw = await searchVinted(intent.searchQuery, { maxItems: 60, maxPrice, minPrice, page: pageNum });
+    } catch {
+      if (pageNum === 1) searchFailed = true;
+      break;
+    }
+
+    const fresh = raw.filter((it) => it.id && !seenIds.has(String(it.id)));
+    fresh.forEach((it) => seenIds.add(String(it.id)));
+    totalRaw += fresh.length;
+    if (!fresh.length) break; // Vinted non ha altre pagine
+
+    let pass = fresh;
+    try {
+      const keep = await selectMatchingItems(ctx, fresh);
+      pass = fresh.filter((_, i) => keep.has(i + 1));
+    } catch {
+      // Gemini non disponibile: teniamo i risultati già ripuliti localmente (meno preciso)
+    }
+    kept.push(...pass);
+
+    if (fresh.length < 15) break; // ultima pagina di Vinted (parziale): inutile chiederne altre
+  }
+
+  if (searchFailed) {
     await sendMessage(chatId, "⚠️ Errore durante la ricerca su Vinted, riprova tra poco.");
     return;
   }
 
-  const rawCount = items.length;
-
-  // Filtro di pertinenza: tiene gli annunci che sono ragionevolmente il TIPO di prodotto
-  // richiesto (senza pretendere il modello esatto), scarta solo ciò che è chiaramente altro
-  // (un gioco al posto della console, un accessorio, un prodotto diverso). Se Gemini non
-  // risponde si prosegue con i risultati già ripuliti localmente.
-  if (items.length) {
-    try {
-      const keep = await selectMatchingItems(
-        {
-          productDescription: intent.productDescription || intent.searchQuery,
-          excludeTypes: intent.excludeTypes || [],
-          userMessage: intent.userMessage,
-        },
-        items
-      );
-      items = items.filter((_, i) => keep.has(i + 1));
-    } catch {
-      // Gemini non disponibile: si prosegue con i risultati già ripuliti localmente
-      // da vinted_search.js (filtro a parole chiave), meno preciso ma meglio di niente.
-    }
-  }
+  let items = kept;
+  const rawCount = totalRaw;
 
   if (!items.length) {
     await sendMessage(
       chatId,
       rawCount
-        ? `Ho trovato annunci ma nessuno sembrava davvero ciò che cerchi${maxPrice ? ` entro ${maxPrice}€` : ""}. Prova a cambiare le parole di ricerca.`
+        ? `Ho guardato più pagine ma nessun annuncio era davvero ciò che cerchi${maxPrice ? ` entro ${maxPrice}€` : ""}. Prova a cambiare le parole di ricerca.`
         : `Nessun annuncio${maxPrice ? ` sotto ${maxPrice}€` : ""} al momento. Riprova più tardi o allarga la ricerca.`
     );
     return;

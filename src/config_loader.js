@@ -8,12 +8,14 @@ const rawConfig = JSON.parse(
 );
 
 function loadConfig() {
-  const geminiApiKeys = [
-    process.env.GEMINI_API_KEY_1,
-    process.env.GEMINI_API_KEY_2,
-    process.env.GEMINI_API_KEY_3,
-    process.env.GEMINI_API_KEY, // compatibilità: singola chiave
-  ].filter(Boolean);
+  // Tutte le GEMINI_API_KEY_N presenti (1,2,3,4,...) in ordine numerico, più la
+  // eventuale GEMINI_API_KEY singola per compatibilità. Aggiungere una chiave = basta
+  // creare il secret GEMINI_API_KEY_4 (ecc.), nessuna modifica al codice.
+  const numbered = Object.keys(process.env)
+    .filter((k) => /^GEMINI_API_KEY_\d+$/.test(k))
+    .sort((a, b) => Number(a.match(/\d+$/)[0]) - Number(b.match(/\d+$/)[0]))
+    .map((k) => process.env[k]);
+  const geminiApiKeys = [...numbered, process.env.GEMINI_API_KEY].filter(Boolean);
 
   return {
     ...rawConfig,
