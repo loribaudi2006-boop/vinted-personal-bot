@@ -12,7 +12,7 @@ function defaultUser(chatId) {
   return {
     chatId,
     createdAt: new Date().toISOString(),
-    alerts: [], // { id, label, query, maxPrice, extraFilters, createdAt }
+    alerts: [], // { id, label, query, productDescription, excludeTypes, maxPrice, minPrice, createdAt }
     seen: {}, // alertId -> [vintedItemId,...] (troncato)
   };
 }

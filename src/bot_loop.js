@@ -3,7 +3,7 @@ const { loadConfig } = require("./config_loader");
 const { sendMessage, sendPhoto, getUpdates } = require("./telegram");
 const { searchVinted } = require("./vinted_search");
 const { parseCommand } = require("./commands");
-const { interpretFreeText, filterRelevantItems } = require("./gemini");
+const { interpretRequest, selectMatchingItems } = require("./gemini");
 const { enrichAndFormatItems } = require("./format_listing");
 const store = require("./store");
 const { readJsonSafe, atomicWriteJson } = require("./lock");
@@ -75,36 +75,57 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 }
 
-async function handleSearchReply(chatId, query, label, maxPrice, desiredCount) {
+async function handleSearchReply(chatId, intent) {
+  const label = intent.label || intent.searchQuery;
+  const desiredCount = intent.desiredCount || null;
+  const maxPrice = intent.maxPrice || null;
+  const minPrice = intent.minPrice || null;
+
   await sendMessage(chatId, `🔎 Cerco: <b>${escapeHtml(label)}</b>…`);
   let items;
   try {
-    // Prendiamo qualche risultato extra: la scrematura Gemini che segue può scartarne alcuni,
-    // così restano comunque abbastanza annunci pertinenti da mostrare.
-    items = await searchVinted(query, { maxItems: (desiredCount || 8) + 4 });
+    // Prendiamo parecchi risultati extra: il filtro severo di Gemini che segue ne scarta
+    // molti (di proposito), quindi serve un margine ampio per avere abbastanza annunci giusti.
+    items = await searchVinted(intent.searchQuery, { maxItems: (desiredCount || 8) + 12 });
   } catch (e) {
     await sendMessage(chatId, "⚠️ Errore durante la ricerca su Vinted, riprova tra poco.");
     return;
   }
 
-  // Il controllo di pertinenza va fatto PRIMA del filtro prezzo: se lo si applica dopo,
-  // un budget stretto rischia di eliminare tutti i prodotti veri e lasciare in giro solo
-  // accessori/oggetti a caso che restano economici — mostrarli sarebbe fuorviante.
-  // Se Gemini non risponde, restano i risultati già puliti localmente da vinted_search.js.
-  if (items.length > 1) {
+  const rawCount = items.length;
+
+  // Filtro di pertinenza SEVERO PRIMA del filtro prezzo: se si filtrasse per prezzo prima,
+  // un budget stretto rischierebbe di lasciare solo accessori/oggetti a caso che restano
+  // economici. Se Gemini non risponde si prosegue con i risultati già puliti localmente.
+  if (items.length) {
     try {
-      const relevant = await filterRelevantItems(query, items);
-      items = items.filter((_, i) => relevant.has(i + 1));
+      const keep = await selectMatchingItems(
+        {
+          productDescription: intent.productDescription || intent.searchQuery,
+          excludeTypes: intent.excludeTypes || [],
+          userMessage: intent.userMessage,
+        },
+        items
+      );
+      items = items.filter((_, i) => keep.has(i + 1));
     } catch {
-      // Gemini non disponibile: nessun blocco, si prosegue con il filtro locale già applicato
+      // Gemini non disponibile: si prosegue con il filtro locale già applicato da vinted_search.js
     }
   }
 
   if (!items.length) {
-    await sendMessage(chatId, "Nessun risultato pertinente trovato al momento.");
+    await sendMessage(
+      chatId,
+      rawCount
+        ? "Ho trovato degli annunci ma nessuno era davvero quello che cerchi (erano giochi, accessori o altri prodotti). Prova a essere più specifico — es. \"console: ps4 slim\"."
+        : "Nessun risultato al momento. Riprova più tardi o cambia le parole di ricerca."
+    );
     return;
   }
 
+  if (minPrice) {
+    items = items.filter((it) => it.price == null || it.price >= minPrice);
+  }
   if (maxPrice) {
     const withinBudget = items.filter((it) => it.price == null || it.price <= maxPrice);
     if (!withinBudget.length) {
@@ -179,63 +200,70 @@ async function handleMessage(chatId, text) {
     return;
   }
 
-  // I comandi fissi (es. "console", "gioco: fifa 23") sono già inequivocabili:
-  // niente Gemini, risposta istantanea e gratis.
-  const parsed = parseCommand(trimmed);
-  if (parsed) {
-    await handleSearchReply(chatId, parsed.query, parsed.label);
+  // Scorciatoie fisse (es. "console", "gioco: fifa 23"): niente chiamata di
+  // interpretazione, ma l'intenzione che producono è comunque ricca (descrizione
+  // precisa + tipi da escludere), così il filtro severo lavora identico.
+  const shortcut = parseCommand(trimmed);
+  if (shortcut) {
+    await handleSearchReply(chatId, { ...shortcut, userMessage: trimmed });
     return;
   }
 
-  // Qualsiasi altro messaggio (frase naturale, richiesta di avviso, chiacchiera) passa
-  // da Gemini per capire davvero cosa vuole l'utente — comprende prezzo, quantità
-  // desiderata e distingue ricerca-adesso da avviso-futuro, in qualsiasi lingua/forma.
-  let interpreted;
+  // Ogni altro messaggio passa da Gemini per capire ESATTAMENTE cosa vuole l'utente:
+  // tipo di prodotto, cosa escludere, prezzo, quantità, e se è una ricerca-adesso, un
+  // avviso-futuro, una chiacchiera o una richiesta ambigua da chiarire.
+  let intent;
   try {
-    interpreted = await interpretFreeText(trimmed);
+    intent = await interpretRequest(trimmed);
   } catch (e) {
-    // Gemini non disponibile (quota/rete): rete di sicurezza locale, solo regex,
-    // così il bot resta comunque utilizzabile per una ricerca semplice.
+    // Gemini non disponibile (quota/rete): rete di sicurezza locale minima, solo regex.
     const desiredCount = extractResultCount(trimmed);
     const withoutCount = desiredCount ? stripResultCountPhrase(trimmed) : trimmed;
     const cleaned = cleanQuery(withoutCount);
     const maxPrice = extractMaxPrice(cleaned);
     const query = stripPricePhrase(cleaned);
     if (!query) {
-      await sendMessage(chatId, "Al momento non riesco a interpretare richieste complesse (servizio IA non disponibile). Scrivimi solo il nome di un prodotto, o /help per i comandi.");
+      await sendMessage(chatId, "Al momento non riesco a interpretare bene la richiesta (servizio IA non disponibile). Scrivimi solo il nome di un prodotto, o /help per i comandi.");
       return;
     }
-    await handleSearchReply(chatId, query, query, maxPrice, desiredCount);
+    await handleSearchReply(chatId, { searchQuery: query, label: query, maxPrice, desiredCount, userMessage: trimmed });
     return;
   }
 
-  if (interpreted.action === "create_alert") {
+  intent.userMessage = trimmed;
+
+  if (intent.action === "clarify") {
+    await sendMessage(chatId, `❓ ${escapeHtml(intent.clarifyQuestion || "Puoi essere più preciso su cosa cerchi?")}`);
+    return;
+  }
+
+  if (intent.action === "create_alert") {
     const alert = store.addAlert(chatId, {
-      label: interpreted.label || interpreted.query,
-      query: interpreted.query,
-      maxPrice: interpreted.maxPrice || null,
-      extraFilters: interpreted.extraFilters || [],
+      label: intent.label || intent.searchQuery,
+      query: intent.searchQuery,
+      productDescription: intent.productDescription || "",
+      excludeTypes: intent.excludeTypes || [],
+      maxPrice: intent.maxPrice || null,
+      minPrice: intent.minPrice || null,
     });
-    // "Semina" subito gli annunci già esistenti come già-visti: altrimenti il primo
-    // controllo dell'alert_loop li tratterebbe tutti come "nuovi" e li manderebbe
-    // in un colpo solo appena creato l'avviso.
+    // "Semina" subito gli annunci esistenti come già-visti, così il primo giro
+    // dell'alert_loop non li manda tutti insieme come se fossero nuovi.
     try {
       const existing = await searchVinted(alert.query, { maxItems: 20 });
       store.markSeen(chatId, alert.id, existing.map((it) => it.id));
     } catch {
-      // se la ricerca iniziale fallisce non è grave: il prossimo ciclo dell'alert_loop
-      // partirà semplicemente considerando nuovo tutto quello che trova
+      // se la ricerca iniziale fallisce, il prossimo ciclo considererà nuovo tutto
     }
     await sendMessage(
       chatId,
-      `✅ Avviso creato: <b>${escapeHtml(alert.label)}</b>${alert.maxPrice ? ` sotto ${alert.maxPrice}€` : ""}.\nTi scriverò solo per i NUOVI annunci pubblicati da adesso in poi. Usa /list per vedere tutti i tuoi avvisi.`
+      `✅ Avviso creato: <b>${escapeHtml(alert.label)}</b>${alert.maxPrice ? ` sotto ${alert.maxPrice}€` : ""}.\nTi scriverò solo per i NUOVI annunci pubblicati da adesso in poi. Usa /list per vedere i tuoi avvisi.`
     );
-  } else if (interpreted.action === "search") {
-    await handleSearchReply(chatId, interpreted.query, interpreted.label || interpreted.query, interpreted.maxPrice, interpreted.desiredCount);
-  } else if (interpreted.action === "chat") {
-    await sendMessage(chatId, interpreted.reply || "Ciao! Scrivimi il nome di un prodotto da cercare, o /help per vedere tutto quello che so fare.");
+  } else if (intent.action === "search") {
+    await handleSearchReply(chatId, intent);
+  } else if (intent.action === "chat") {
+    await sendMessage(chatId, intent.reply || "Ciao! Scrivimi il nome di un prodotto da cercare, o /help per vedere cosa so fare.");
   } else {
-    await sendMessage(chatId, interpreted.reply || "Non ho capito bene la richiesta. Scrivi /help per vedere i comandi disponibili.");
+    await sendMessage(chatId, intent.reply || "Non ho capito bene. Scrivimi il nome di un prodotto, o /help per i comandi.");
   }
 }
 

@@ -3,6 +3,7 @@ const { searchVinted } = require("./vinted_search");
 const { sendPhoto, sendMessage } = require("./telegram");
 const { checkListing } = require("./fake_detector");
 const { enrichAndFormatItem } = require("./format_listing");
+const { selectMatchingItems } = require("./gemini");
 const store = require("./store");
 
 function escapeHtml(s) {
@@ -19,14 +20,33 @@ async function processAlert(user, alert) {
   }
 
   const seen = new Set((user.seen[alert.id] || []).map(String));
-  const candidates = items.filter((it) => !seen.has(String(it.id)));
+  let candidates = items.filter((it) => !seen.has(String(it.id)));
   if (!candidates.length) return;
 
-  const withinBudget = alert.maxPrice
+  // Segniamo come "visti" TUTTI i candidati nuovi grezzi (prima di ogni filtro): così un
+  // annuncio scartato dal filtro di pertinenza non viene rivalutato a ogni giro.
+  const newlySeenIds = candidates.map((it) => it.id);
+
+  // Filtro di pertinenza severo, se l'avviso ha una descrizione precisa (avvisi creati
+  // dopo questo aggiornamento). Evita che "avvisami per una ps4" mandi giochi o accessori.
+  if (alert.productDescription && candidates.length) {
+    try {
+      const keep = await selectMatchingItems(
+        { productDescription: alert.productDescription, excludeTypes: alert.excludeTypes || [], userMessage: alert.label },
+        candidates
+      );
+      candidates = candidates.filter((_, i) => keep.has(i + 1));
+    } catch {
+      // Gemini non disponibile: si prosegue senza il filtro extra
+    }
+  }
+
+  let withinBudget = alert.maxPrice
     ? candidates.filter((it) => it.price != null && it.price <= alert.maxPrice)
     : candidates;
-
-  const newlySeenIds = candidates.map((it) => it.id);
+  if (alert.minPrice) {
+    withinBudget = withinBudget.filter((it) => it.price == null || it.price >= alert.minPrice);
+  }
 
   for (const item of withinBudget) {
     const verdict = await checkListing(item).catch(() => ({ suspicious: false }));

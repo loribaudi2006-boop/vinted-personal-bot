@@ -41,56 +41,68 @@ async function callGemini(prompt, { json = true } = {}) {
 }
 
 /**
- * Interpreta QUALSIASI messaggio libero dell'utente e lo trasforma in un'azione strutturata.
- * È il motore di interpretazione principale della chat (i comandi fissi tipo "console" restano
- * gestiti localmente perché già inequivocabili, per non sprecare una chiamata inutile).
+ * Motore di comprensione della chat: prende il messaggio libero dell'utente e ne
+ * ricava un'intenzione strutturata e RICCA — non solo le parole chiave, ma anche una
+ * descrizione precisa dell'oggetto voluto e i tipi di annuncio da scartare. Questi
+ * campi servono poi a `selectMatchingItems` per non restituire mai spazzatura.
  */
-async function interpretFreeText(message) {
-  const prompt = `Sei il motore di interpretazione di un bot Telegram che cerca QUALSIASI tipo di articolo in vendita su Vinted (abbigliamento, elettronica, console, giochi, accessori, casa, ecc. — non solo gaming).
-L'utente ha scritto questo messaggio in italiano (o comunque in una lingua naturale): "${message}"
+async function interpretRequest(message) {
+  const prompt = `Sei il motore di comprensione di un bot Telegram che cerca articoli in vendita su Vinted (qualsiasi categoria: abbigliamento, elettronica, console, videogiochi, accessori, casa...).
 
-Decidi l'azione. Rispondi SOLO con un JSON con questa forma esatta:
+Messaggio dell'utente (lingua naturale, di solito italiano): "${message}"
+
+Capisci ESATTAMENTE cosa vuole e rispondi SOLO con questo JSON:
 {
-  "action": "search" | "create_alert" | "chat" | "unknown",
-  "query": "testo di ricerca da usare su Vinted (solo le parole chiave essenziali del prodotto, es. 'ps5 slim', senza saluti/verbi/prezzi)",
-  "maxPrice": numero_o_null,
-  "desiredCount": numero_o_null,
-  "extraFilters": ["eventuali filtri extra in linguaggio naturale, es. 'solo pagamento su Vinted', 'come nuovo'"],
-  "label": "etichetta breve leggibile per questa ricerca/alert",
-  "reply": "una risposta breve e naturale in italiano, usata SOLO se action è 'chat' o 'unknown' (es. un saluto, o una richiesta di chiarimento se il messaggio è ambiguo)"
+  "action": "search" | "create_alert" | "chat" | "clarify",
+  "searchQuery": "il testo migliore da digitare nella barra di ricerca di Vinted per trovare proprio quel prodotto (solo parole chiave essenziali, marca+modello se citati; niente saluti, verbi, prezzi, punteggiatura). Es: 'mi trovi una playstation 5 slim?' -> 'playstation 5 slim'",
+  "productDescription": "UNA frase chiara che descrive l'oggetto esatto voluto, come istruzione per un secondo filtro. Chiarisci se è il DISPOSITIVO, un ACCESSORIO o un GIOCO. Es: 'la console PlayStation 5 (il dispositivo), non giochi né accessori'; 'un videogioco per Nintendo Switch, titolo Zelda'; 'una giacca da uomo North Face'",
+  "excludeTypes": ["tipi di annuncio da SCARTARE perché non sono ciò che l'utente vuole. Es. per una console: 'videogiochi','controller','cavi','cover','supporti','solo scatola'. Vuoto [] se l'utente non è restrittivo"],
+  "maxPrice": numero o null (solo se lo dice: 'sotto 200€','max 50'),
+  "minPrice": numero o null,
+  "condition": "nuovo" | "come nuovo" | "buone condizioni" | null (solo se citato),
+  "desiredCount": numero o null (solo se dice quanti ne vuole),
+  "label": "etichetta breve leggibile, es. 'PlayStation 5 Slim sotto 300€'",
+  "clarifyQuestion": "se action è 'clarify': UNA domanda breve per capire cosa intende. Altrimenti ''",
+  "reply": "se action è 'chat': risposta breve e naturale in italiano. Altrimenti ''"
 }
 
 Regole:
-- Usa "create_alert" solo se l'utente chiede esplicitamente di essere avvisato/notificato in futuro (es. "avvisami quando...", "notificami se...", "tienimi d'occhio...").
-- Usa "search" se l'utente vuole vedere subito dei prodotti in vendita su Vinted (anche se scritto come frase naturale, es. "cercami un iphone 15 sotto 300 euro" o semplicemente "iphone 15").
-- Usa "chat" per saluti, ringraziamenti, o messaggi conversazionali che non richiedono una ricerca (es. "ciao", "grazie", "come funzioni?").
-- Usa "unknown" se il messaggio è ambiguo o non chiaro.
-- "maxPrice" va estratto solo se l'utente indica esplicitamente un prezzo massimo (es. "sotto i 200€", "a meno di 50 euro" -> quel numero).
-- "desiredCount" va estratto solo se l'utente indica esplicitamente quanti risultati vuole (es. "almeno 5 risultati", "dammene 10" -> quel numero), altrimenti null.`;
+- "create_alert" SOLO se chiede di essere avvisato in futuro ('avvisami quando...','notificami se...','tienimi d'occhio').
+- "search" se vuole vedere subito degli annunci (anche solo 'iphone 15' o 'console').
+- "chat" per saluti, ringraziamenti, domande sul funzionamento del bot.
+- "clarify" SOLO se la richiesta è davvero ambigua e cercare a caso darebbe risultati sbagliati (es. 'nintendo' senza dire se console/giochi/accessori; 'fifa' senza dire per quale console). Se puoi ragionevolmente indovinare, NON usare clarify.
+- Parole generiche di categoria = loro significato più naturale: 'console' = i DISPOSITIVI (PlayStation, Xbox, Nintendo Switch...), NON i videogiochi; 'giochi'/'videogiochi' = i titoli; 'controller' = i joypad.
+- Cura molto "excludeTypes" e "productDescription": sono la chiave per non restituire annunci sbagliati.`;
 
   return callGemini(prompt);
 }
 
 /**
- * Rivede una lista di annunci trovati su Vinted e scarta quelli non davvero pertinenti
- * alla ricerca dell'utente (accessori/pertinenze, prodotti diversi, annunci in altre lingue
- * che il filtro locale a parole chiave non ha riconosciuto).
+ * Filtro di pertinenza SEVERO: dati la descrizione precisa dell'oggetto voluto e i tipi
+ * da escludere, tiene solo gli annunci che sono chiaramente quel prodotto. Nel dubbio scarta
+ * (per una ricerca personale è meglio pochi risultati giusti che tanti sbagliati).
  */
-async function filterRelevantItems(query, items) {
-  const list = items.map((it, i) => `${i + 1}. ${it.title} — ${it.price != null ? it.price + "€" : "prezzo n.d."}`).join("\n");
-  const prompt = `L'utente sta cercando su Vinted: "${query}"
+async function selectMatchingItems({ productDescription, excludeTypes = [], userMessage }, items) {
+  const list = items
+    .map((it, i) => `${i + 1}. ${it.title}${it.price != null ? ` — ${it.price}€` : ""}`)
+    .join("\n");
+  const prompt = `Un utente su Vinted cerca esattamente questo: ${productDescription}
+${excludeTypes.length ? `Da SCARTARE assolutamente: ${excludeTypes.join(", ")}.` : ""}
+${userMessage ? `Messaggio originale dell'utente: "${userMessage}"` : ""}
 
-Ecco gli annunci trovati (numerati):
+Annunci trovati (solo il titolo):
 ${list}
 
-Indica quali numeri sono DAVVERO pertinenti alla ricerca — cioè lo stesso tipo di prodotto cercato, non accessori/pertinenze (cover, cavi, custodie, caricatori, ecc.) né prodotti diversi (es. un gioco quando si cerca la console).
-Se un annuncio è scritto in un'altra lingua ma è comunque lo stesso prodotto, includilo.
-Se non sei sicuro su un annuncio, includilo comunque (meglio un falso positivo che perdere un affare vero).
+Per ogni annuncio decidi se è PROPRIO il prodotto che l'utente vuole.
+- Tieni SOLO gli annunci chiaramente corrispondenti.
+- SCARTA: prodotti diversi; accessori/pertinenze quando l'utente vuole il prodotto principale (e viceversa); lotti/bundle che sono soprattutto altra roba; annunci di sole scatole/manuali; titoli troppo vaghi per esserne sicuri.
+- Nel dubbio SCARTA.
+- Un annuncio in un'altra lingua ma chiaramente lo stesso prodotto va tenuto.
 
-Rispondi SOLO con un JSON: { "relevantIndices": [1, 3, 5] } (numeri 1-based dalla lista sopra).`;
+Rispondi SOLO con JSON: { "keep": [numeri 1-based degli annunci da tenere] }`;
 
   const result = await callGemini(prompt);
-  return new Set(result.relevantIndices || []);
+  return new Set(result.keep || []);
 }
 
 /**
@@ -142,4 +154,4 @@ Regole per "repairPartQueries":
   return callGemini(prompt);
 }
 
-module.exports = { interpretFreeText, assessListingAuthenticity, filterRelevantItems, summarizeListing };
+module.exports = { interpretRequest, assessListingAuthenticity, selectMatchingItems, summarizeListing };
