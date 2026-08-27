@@ -89,7 +89,7 @@ async function enrichAndFormatItem(item, prefix = "") {
  * Arricchisce una lista di annunci con una concorrenza limitata, per non aprire
  * troppe pagine Chrome in parallelo (e non far esplodere i tempi di risposta).
  */
-async function enrichAndFormatItems(items, prefix = "", concurrency = 3) {
+async function enrichAndFormatItems(items, prefix = "", concurrency = 5) {
   const results = new Array(items.length);
   let next = 0;
   async function worker() {

@@ -1,7 +1,7 @@
 {
   "searchLoopIntervalSec": 90,
   "pollUpdatesIntervalSec": 3,
-  "maxResultsPerSearch": 8,
+  "maxResultsPerSearch": 15,
   "repairPartsLookup": true,
   "maxRepairParts": 3,
   "chromePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",

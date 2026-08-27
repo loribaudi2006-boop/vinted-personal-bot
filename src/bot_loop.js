@@ -76,8 +76,9 @@ function escapeHtml(s) {
 }
 
 async function handleSearchReply(chatId, intent) {
+  const cfg = loadConfig();
   const label = intent.label || intent.searchQuery;
-  const desiredCount = intent.desiredCount || null;
+  const showCount = intent.desiredCount || cfg.maxResultsPerSearch || 15;
   const maxPrice = intent.maxPrice || null;
   const minPrice = intent.minPrice || null;
 
@@ -87,9 +88,10 @@ async function handleSearchReply(chatId, intent) {
     // Il prezzo lo filtra direttamente Vinted (price_to/price_from). Prendiamo un campione
     // ampio: il filtro di pertinenza che segue ne scarta un po', serve margine.
     items = await searchVinted(intent.searchQuery, {
-      maxItems: (desiredCount || 8) + 30,
+      maxItems: showCount + 60,
       maxPrice,
       minPrice,
+      filterNoise: false, // il filtro di pertinenza Gemini più a valle è più intelligente
     });
   } catch (e) {
     await sendMessage(chatId, "⚠️ Errore durante la ricerca su Vinted, riprova tra poco.");
@@ -139,7 +141,7 @@ async function handleSearchReply(chatId, intent) {
   // altrimenti l'ordine di Vinted (più recenti).
   if (maxPrice) items.sort((a, b) => (a.price ?? 1e9) - (b.price ?? 1e9));
 
-  items = items.slice(0, desiredCount || 8);
+  items = items.slice(0, showCount);
 
   // Apriamo ogni annuncio per spedizione/stelle venditore/eventuali problemi dichiarati:
   // richiede qualche secondo in più rispetto a una lista "grezza", ma il dettaglio in più

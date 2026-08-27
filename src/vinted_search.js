@@ -98,9 +98,9 @@ async function searchVinted(query, opts = {}) {
     // campione ampio (~40-70 annunci) invece dei soli ~20 iniziali, così la ricerca è
     // davvero approfondita e il filtro di pertinenza ha abbastanza materiale.
     await page.evaluate(async () => {
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 7; i++) {
         window.scrollTo(0, document.body.scrollHeight);
-        await new Promise((r) => setTimeout(r, 700));
+        await new Promise((r) => setTimeout(r, 650));
       }
     }).catch(() => {});
 
