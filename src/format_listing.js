@@ -50,13 +50,16 @@ async function enrichAndFormatItem(item, prefix = "") {
           try {
             const parts = await findParts(queries, cfg.maxRepairParts || 3);
             if (parts.length) {
-              const rows = parts.map(
-                (p) => `• ${escapeHtml(p.title.slice(0, 75))} — ~${p.price.toFixed(2)}€\n${p.url}`
-              );
-              const tot = parts.reduce((s, p) => s + p.price, 0);
-              partsLine =
-                `\n\n🔧 <b>Pezzi di ricambio</b> (Amazon.it):\n${rows.join("\n")}` +
-                `\n💰 Totale ricambi stimato: ~${tot.toFixed(2)}€`;
+              const rows = parts.map((p) => {
+                if (p.title && p.price != null) {
+                  return `• ${escapeHtml(p.title.slice(0, 75))} — ~${p.price.toFixed(2)}€\n${p.url}`;
+                }
+                // pezzo non trovato in automatico: mostriamo comunque cosa cercare + link pronto
+                return `• ${escapeHtml(p.query || "ricambio")} (cerca) \n${p.url}`;
+              });
+              const tot = parts.reduce((s, p) => s + (p.price || 0), 0);
+              const totLine = tot > 0 ? `\n💰 Totale ricambi (trovati): ~${tot.toFixed(2)}€` : "";
+              partsLine = `\n\n🔧 <b>Pezzi di ricambio</b> (Amazon.it):\n${rows.join("\n")}${totLine}`;
             }
           } catch {
             // Amazon non raggiungibile/bloccato: si manda comunque il resto
