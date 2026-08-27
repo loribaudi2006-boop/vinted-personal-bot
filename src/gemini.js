@@ -79,31 +79,47 @@ Regole:
 }
 
 /**
- * Filtro di pertinenza SEVERO: dati la descrizione precisa dell'oggetto voluto e i tipi
- * da escludere, tiene solo gli annunci che sono chiaramente quel prodotto. Nel dubbio scarta
- * (per una ricerca personale è meglio pochi risultati giusti che tanti sbagliati).
+ * Filtro di pertinenza. Dati la descrizione del TIPO di prodotto voluto e le categorie da
+ * escludere, tiene solo gli annunci che sono davvero quel prodotto (qualsiasi modello), e
+ * scarta ciò che è di categoria diversa (gioco al posto della console, accessori, altro).
+ * Per liste lunghe divide in blocchi così il modello valuta ogni annuncio con attenzione.
  */
-async function selectMatchingItems({ productDescription, excludeTypes = [], userMessage }, items) {
+async function _selectChunk({ productDescription, excludeTypes, userMessage }, items, offset) {
   const list = items
-    .map((it, i) => `${i + 1}. ${it.title}${it.price != null ? ` — ${it.price}€` : ""}`)
+    .map((it, i) => `${offset + i + 1}. ${it.title}${it.price != null ? ` — ${it.price}€` : ""}`)
     .join("\n");
-  const prompt = `Un utente su Vinted cerca esattamente questo: ${productDescription}
-${excludeTypes.length ? `Da SCARTARE assolutamente: ${excludeTypes.join(", ")}.` : ""}
-${userMessage ? `Messaggio originale dell'utente: "${userMessage}"` : ""}
+  const prompt = `Un utente su Vinted cerca: ${productDescription}
+${excludeTypes && excludeTypes.length ? `Categorie da SCARTARE: ${excludeTypes.join(", ")}.` : ""}
+${userMessage ? `Messaggio originale: "${userMessage}"` : ""}
 
-Annunci trovati (solo il titolo):
+Annunci (numero. titolo):
 ${list}
 
-Per ogni annuncio decidi se appartiene al TIPO di prodotto che l'utente vuole.
-- TIENI tutti gli annunci che sono quel tipo di prodotto, anche se di modello/variante/colore/taglio diversi da un eventuale esempio (es. si cerca "PS4": tieni PS4 Fat, Slim, Pro, bundle con console PS4 inclusa).
-- SCARTA solo: prodotti di categoria diversa (un gioco/accessorio quando si vuole la console, o viceversa); prodotti completamente diversi; lotti che NON includono il prodotto voluto; annunci di sole scatole vuote o soli manuali.
-- Nel dubbio, se potrebbe essere quel tipo di prodotto, TIENILO.
-- Annuncio in un'altra lingua ma stesso tipo di prodotto: TIENILO.
+Regole:
+- TIENI un annuncio se è davvero quel tipo di prodotto, di QUALSIASI modello/variante/taglia/colore (es. si cerca "PS4" -> tieni PS4 Fat, Slim, Pro; si cerca "giacca Nike" -> tieni qualsiasi giacca Nike).
+- TIENI i lotti/bundle che includono il prodotto voluto.
+- SCARTA se è di categoria diversa: un videogioco quando si vuole la console (o viceversa); accessori/ricambi/cover/cavi quando si vuole il prodotto principale; un prodotto completamente diverso; solo-scatola o solo-manuale.
+- SCARTA se dal titolo NON si capisce che sia il prodotto voluto (titoli vaghi/fuori tema).
+- Un titolo in altra lingua ma chiaramente lo stesso prodotto: TIENILO.
 
-Rispondi SOLO con JSON: { "keep": [numeri 1-based degli annunci da tenere] }`;
+Rispondi SOLO con JSON: { "keep": [numeri degli annunci da tenere, come compaiono sopra] }`;
 
   const result = await callGemini(prompt);
-  return new Set(result.keep || []);
+  return new Set((result.keep || []).map(Number).filter((n) => Number.isFinite(n)));
+}
+
+async function selectMatchingItems(ctx, items) {
+  const CHUNK = 25;
+  if (items.length <= CHUNK) return _selectChunk(ctx, items, 0);
+
+  const jobs = [];
+  for (let i = 0; i < items.length; i += CHUNK) {
+    jobs.push(_selectChunk(ctx, items.slice(i, i + CHUNK), i).catch(() => new Set()));
+  }
+  const sets = await Promise.all(jobs);
+  const merged = new Set();
+  sets.forEach((s) => s.forEach((n) => merged.add(n)));
+  return merged;
 }
 
 /**

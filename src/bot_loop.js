@@ -91,7 +91,6 @@ async function handleSearchReply(chatId, intent) {
       maxItems: showCount + 60,
       maxPrice,
       minPrice,
-      filterNoise: false, // il filtro di pertinenza Gemini più a valle è più intelligente
     });
   } catch (e) {
     await sendMessage(chatId, "⚠️ Errore durante la ricerca su Vinted, riprova tra poco.");
@@ -114,12 +113,10 @@ async function handleSearchReply(chatId, intent) {
         },
         items
       );
-      const filtered = items.filter((_, i) => keep.has(i + 1));
-      // Se il filtro azzera tutto ma Vinted aveva restituito parecchi annunci, è più
-      // probabile un filtro troppo severo che un vero "niente di pertinente": teniamo i grezzi.
-      items = filtered.length ? filtered : (rawCount >= 8 ? items : filtered);
+      items = items.filter((_, i) => keep.has(i + 1));
     } catch {
-      // Gemini non disponibile: si prosegue con il filtro locale già applicato
+      // Gemini non disponibile: si prosegue con i risultati già ripuliti localmente
+      // da vinted_search.js (filtro a parole chiave), meno preciso ma meglio di niente.
     }
   }
 
