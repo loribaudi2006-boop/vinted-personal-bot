@@ -2,7 +2,10 @@ name: Vinted Personal Bot
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    # Ogni 3 ore invece di 6: se GitHub salta o ritarda un avvio programmato
+    # (succede spesso), quello dopo recupera prima. "concurrency" evita comunque
+    # piu' di un job attivo per volta.
+    - cron: '0 */3 * * *'
   workflow_dispatch: {}
 
 concurrency:
