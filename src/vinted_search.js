@@ -200,4 +200,4 @@ async function fetchListingEnrichment(url) {
   }
 }
 
-module.exports = { searchVinted, fetchListingDetails, fetchListingEnrichment, closeBrowser, parsePrice };
+module.exports = { getBrowser, searchVinted, fetchListingDetails, fetchListingEnrichment, closeBrowser, parsePrice };

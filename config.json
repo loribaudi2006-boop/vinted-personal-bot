@@ -2,6 +2,8 @@
   "searchLoopIntervalSec": 90,
   "pollUpdatesIntervalSec": 3,
   "maxResultsPerSearch": 8,
+  "repairPartsLookup": true,
+  "maxRepairParts": 3,
   "chromePath": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "referencePrices": {
     "ps5": 350,

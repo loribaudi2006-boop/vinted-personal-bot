@@ -1,5 +1,12 @@
 const { fetchListingEnrichment } = require("./vinted_search");
 const { summarizeListing } = require("./gemini");
+const { findParts } = require("./amazon_search");
+const { loadConfig } = require("./config_loader");
+
+// Cerchiamo i pezzi di ricambio solo per oggetti che hanno davvero senso riparare:
+// se ne' il titolo ne' il difetto dichiarato somigliano a un dispositivo elettronico,
+// non apriamo pagine Amazon inutilmente (una "giacca con zip rotta" non c'entra).
+const REPAIRABLE_RE = /\b(ps[2345]|playstation|dualsense|dualshock|xbox|series\s*[sx]|nintendo|switch|joy-?con|wii|controller|joystick|console|3ds|psp|steam\s*deck|pc|notebook|monitor|drone|gopro|fotocamera|reflex|obiettivo|iphone|ipad|airpods|kindle|tablet|smartwatch)\b/i;
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
@@ -17,6 +24,7 @@ async function enrichAndFormatItem(item, prefix = "") {
   let ratingLine = "";
   let problemsLine = "";
   let reasonLine = "";
+  let partsLine = "";
 
   try {
     const enrichment = await fetchListingEnrichment(item.url);
@@ -34,6 +42,26 @@ async function enrichAndFormatItem(item, prefix = "") {
         const summary = await summarizeListing({ title: item.title, price: item.price, text: enrichment.fullText });
         if (summary.problems) problemsLine = `\n⚠️ Problemi: ${escapeHtml(summary.problems)}`;
         if (summary.reasonForSale) reasonLine = `\n💬 Motivo vendita: ${escapeHtml(summary.reasonForSale)}`;
+
+        const cfg = loadConfig();
+        const queries = Array.isArray(summary.repairPartQueries) ? summary.repairPartQueries.filter(Boolean) : [];
+        const looksRepairable = REPAIRABLE_RE.test(item.title || "") || REPAIRABLE_RE.test(summary.problems || "");
+        if (cfg.repairPartsLookup !== false && queries.length && looksRepairable) {
+          try {
+            const parts = await findParts(queries, cfg.maxRepairParts || 3);
+            if (parts.length) {
+              const rows = parts.map(
+                (p) => `• ${escapeHtml(p.title.slice(0, 75))} — ~${p.price.toFixed(2)}€\n${p.url}`
+              );
+              const tot = parts.reduce((s, p) => s + p.price, 0);
+              partsLine =
+                `\n\n🔧 <b>Pezzi di ricambio</b> (Amazon.it):\n${rows.join("\n")}` +
+                `\n💰 Totale ricambi stimato: ~${tot.toFixed(2)}€`;
+            }
+          } catch {
+            // Amazon non raggiungibile/bloccato: si manda comunque il resto
+          }
+        }
       } catch {
         // niente riassunto, il resto dei dettagli resta comunque utile
       }
@@ -42,7 +70,9 @@ async function enrichAndFormatItem(item, prefix = "") {
     // annuncio non raggiungibile: si manda comunque il messaggio base
   }
 
-  return `${prefix}<b>${escapeHtml(item.title || "Annuncio")}</b>\n${basePrice}${shippingLine}${ratingLine}${problemsLine}${reasonLine}\n${item.url}`;
+  // Il link dell'annuncio va PRIMA della sezione ricambi: se la didascalia di una foto
+  // supera il limite Telegram e viene tagliata, non perdiamo comunque il link all'annuncio.
+  return `${prefix}<b>${escapeHtml(item.title || "Annuncio")}</b>\n${basePrice}${shippingLine}${ratingLine}${problemsLine}${reasonLine}\n${item.url}${partsLine}`;
 }
 
 /**

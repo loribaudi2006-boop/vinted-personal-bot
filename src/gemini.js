@@ -130,8 +130,14 @@ Testo estratto dalla pagina: ${(text || "").slice(0, 2000)}
 Rispondi SOLO con un JSON:
 {
   "problems": "breve riassunto in italiano di eventuali difetti/problemi dichiarati dal venditore, o null se non ce ne sono/non è specificato",
-  "reasonForSale": "breve motivo della vendita se il venditore lo scrive esplicitamente, o null se non specificato"
-}`;
+  "reasonForSale": "breve motivo della vendita se il venditore lo scrive esplicitamente, o null se non specificato",
+  "repairPartQueries": ["query di ricerca per Amazon.it dei pezzi di ricambio necessari a riparare il difetto"]
+}
+
+Regole per "repairPartQueries":
+- Popola l'array SOLO se l'articolo è un dispositivo elettronico riparabile (console, controller, PC, fotocamera, drone, telefono, ecc.) E il venditore dichiara un difetto concreto risolvibile con un pezzo di ricambio (es. stick che va da solo/drifting, tasto rotto, non si accende, lettore disco KO, ventola rumorosa, batteria che non tiene, schermo rotto).
+- Ogni query deve essere specifica e in italiano: includi il modello esatto + il pezzo (es. "stick analogico ricambio dualsense ps5", "alimentatore interno ps4 slim", "ventola raffreddamento nintendo switch"). Massimo 3 query.
+- Lascia l'array VUOTO [] per: abbigliamento e oggetti non elettronici, difetti solo estetici (graffi, ingiallimento), o quando non c'è alcun difetto dichiarato.`;
 
   return callGemini(prompt);
 }
