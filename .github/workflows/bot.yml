@@ -8,6 +8,9 @@ on:
     - cron: '0 */3 * * *'
   workflow_dispatch: {}
 
+permissions:
+  contents: write
+
 concurrency:
   group: vinted-personal-bot
   cancel-in-progress: false
