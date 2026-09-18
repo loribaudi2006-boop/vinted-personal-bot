@@ -1,0 +1,48 @@
+{
+  "chatId": 6640939998,
+  "createdAt": "2026-09-18T09:05:53.020Z",
+  "alerts": [
+    {
+      "id": "mu6qh9q4",
+      "createdAt": "2026-09-18T09:05:53.020Z",
+      "label": "PS5 console sotto 310€ 5 stelle",
+      "query": "ps5 console",
+      "productDescription": "una console PlayStation 5, qualsiasi versione, con profilo venditore 5 stelle ed esclusione di truffe di pagamento fuori piattaforma",
+      "excludeTypes": [
+        "videogiochi",
+        "giochi",
+        "controller",
+        "cavi",
+        "accessori",
+        "cover",
+        "solo scatola"
+      ],
+      "maxPrice": 310,
+      "minPrice": null
+    }
+  ],
+  "seen": {
+    "mu6qh9q4": [
+      "10041741094",
+      "10041652669",
+      "10041717439",
+      "10041711771",
+      "10041745658",
+      "10041746484",
+      "10041726651",
+      "10041739585",
+      "10041731648",
+      "10041733719",
+      "10041721517",
+      "10041722745",
+      "10041720451",
+      "10022861819",
+      "10041711869",
+      "10041700434",
+      "10041702284",
+      "10041699181",
+      "10041698136",
+      "10041698661"
+    ]
+  }
+}
